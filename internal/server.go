@@ -8,7 +8,6 @@ import (
 	"github.com/LK4D4/joincontext"
 	"github.com/hashicorp/go-hclog"
 	jsonschema "github.com/naveego/go-json-schema"
-	"github.com/naveego/plugin-pub-mssql/internal/adapters"
 	"github.com/naveego/plugin-pub-mssql/internal/adapters/mssql"
 	"github.com/naveego/plugin-pub-mssql/internal/meta"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
@@ -43,16 +42,16 @@ type Session struct {
 	Cancel     func()
 	Publishing bool
 	Log        hclog.Logger
-	MetadataSource adapters.MetadataSource
-	Settings   adapters.Settings
-	Writer     adapters.Writer
+	MetadataSource MetadataSource
+	Settings   Settings
+	Writer     Writer
 	// tables that were discovered during connect
 	SchemaInfo       map[string]*meta.Schema
 	StoredProcedures []string
-	RealTimeHelper   adapters.RealTimeHelper
+	RealTimeHelper   RealTimeHelper
 	Config           Config
 	DB               *sql.DB
-	SchemaDiscoverer adapters.SchemaDiscoverer
+	SchemaDiscoverer SchemaDiscoverer
 }
 
 type OpSession struct {
@@ -170,8 +169,8 @@ func (s *Server) Connect(ctx context.Context, req *pub.ConnectRequest) (*pub.Con
 
 	session.Ctx, session.Cancel = context.WithCancel(context.Background())
 
-	switch adapters.Driver {
-	case adapters.MSSQLDriver:
+	switch Driver {
+	case MSSQLDriver:
 		metadataSource, err := mssql.NewMetadataSource()
 		if err != nil {
 
@@ -179,7 +178,7 @@ func (s *Server) Connect(ctx context.Context, req *pub.ConnectRequest) (*pub.Con
 
 		session.MetadataSource = metadataSource
 		break
-	case adapters.SnowflakeDriver:
+	case SnowflakeDriver:
 		//metadataSource, err := snowflake.NewMetadataSource()
 		//if err != nil {
 		//
@@ -203,7 +202,7 @@ func (s *Server) Connect(ctx context.Context, req *pub.ConnectRequest) (*pub.Con
 		return nil, err
 	}
 
-	session.DB, err = sql.Open(adapters.Driver, connectionString)
+	session.DB, err = sql.Open(Driver, connectionString)
 	if err != nil {
 		return nil, errors.Errorf("could not open connection: %s", err)
 	}

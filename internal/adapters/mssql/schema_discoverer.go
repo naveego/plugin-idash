@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/hashicorp/go-hclog"
 	"github.com/naveego/plugin-pub-mssql/internal"
-	"github.com/naveego/plugin-pub-mssql/internal/adapters"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 	"github.com/pkg/errors"
 	"regexp"
@@ -18,7 +17,7 @@ type SchemaDiscoverer struct {
 	Log hclog.Logger
 }
 
-func NewSchemaDiscoverer(log hclog.Logger) (adapters.SchemaDiscoverer, error) {
+func NewSchemaDiscoverer(log hclog.Logger) (internal.SchemaDiscoverer, error) {
 	return &SchemaDiscoverer{
 		Log: log,
 	}, nil
@@ -246,4 +245,4 @@ func getCount(session *internal.OpSession, schema *pub.Schema) (*pub.Count, erro
 	}, nil
 }
 
-var _ adapters.SchemaDiscoverer = &SchemaDiscoverer{}
+var _ internal.SchemaDiscoverer = &SchemaDiscoverer{}

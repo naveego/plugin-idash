@@ -6,9 +6,9 @@ import (
 	"fmt"
 	jsonschema "github.com/naveego/go-json-schema"
 	"github.com/naveego/plugin-pub-mssql/internal"
-	"github.com/naveego/plugin-pub-mssql/internal/adapters"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 	"github.com/naveego/plugin-pub-mssql/internal/templates"
+	"github.com/naveego/plugin-pub-mssql/pkg/sqlstructs"
 	"github.com/pkg/errors"
 	"sort"
 	"strings"
@@ -265,4 +265,40 @@ func getChangeTrackingVersion(session *internal.OpSession) (int, error) {
 	return version, err
 }
 
-var _ adapters.RealTimeHelper = &RealTimeHelper{}
+func describeResultSet(session *internal.OpSession, query string) ([]describeResult, error) {
+	metaQuery := fmt.Sprintf("sp_describe_first_result_set N'%s', @params= N'', @browse_information_mode=1", query)
+
+	rows, err := session.DB.Query(metaQuery)
+
+	if err != nil {
+
+		rows, betterErr := session.DB.Query(query)
+		if betterErr == nil {
+			rows.Close()
+			return nil, errors.Errorf("unhelpful error returned by MSSQL when getting metadata for query %q: %s", query, err)
+		} else {
+			return nil, errors.Errorf("error when getting metadata for query %q: %s", query, betterErr)
+		}
+	}
+
+	metadata := make([]describeResult, 0, 0)
+
+	defer rows.Close()
+	err = sqlstructs.UnmarshalRows(rows, &metadata)
+	if err != nil {
+		return nil, errors.Errorf("error parsing metadata for query %q: %s", query, err)
+	}
+
+	return metadata, nil
+}
+
+type describeResult struct {
+	IsHidden          bool   `sql:"is_hidden"`
+	Name              string `sql:"name"`
+	SystemTypeName    string `sql:"system_type_name"`
+	IsNullable        bool   `sql:"is_nullable"`
+	IsPartOfUniqueKey bool   `sql:"is_part_of_unique_key"`
+	MaxLength         int64  `sql:"max_length"`
+}
+
+var _ internal.RealTimeHelper = &RealTimeHelper{}

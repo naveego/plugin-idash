@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/naveego/go-json-schema"
-	"github.com/naveego/plugin-pub-mssql/internal/adapters"
+	"github.com/naveego/plugin-pub-mssql/internal"
 	"github.com/pkg/errors"
 	"net/url"
 )
@@ -32,7 +32,7 @@ const (
 	AuthTypeWindows = AuthType("windows")
 )
 
-func NewSettings(settingsJson []byte) (adapters.Settings, error) {
+func NewSettings(settingsJson []byte) (internal.Settings, error) {
 	var settings Settings
 	if err := json.Unmarshal(settingsJson, settings); err != nil {
 		return nil, errors.WithStack(err)
@@ -317,4 +317,4 @@ func updateProperty(property *jsonschema.Property, fn func(property *jsonschema.
 	return nil
 }
 
-var _ adapters.Settings = &Settings{}
+var _ internal.Settings = &Settings{}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/naveego/plugin-pub-mssql/internal"
-	"github.com/naveego/plugin-pub-mssql/internal/adapters"
 	"github.com/naveego/plugin-pub-mssql/internal/constants"
 	"github.com/naveego/plugin-pub-mssql/internal/meta"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
@@ -25,7 +24,7 @@ type DefaultWriteHandler struct {
 	WriteSettings *internal.WriteSettings
 }
 
-func NewDefaultWriteHandler(session *internal.OpSession, req *pub.PrepareWriteRequest) (adapters.Writer, error) {
+func NewDefaultWriteHandler(session *internal.OpSession, req *pub.PrepareWriteRequest) (internal.Writer, error) {
 
 	d := &DefaultWriteHandler{}
 
@@ -90,7 +89,7 @@ type ReplicationWriter struct {
 	changes           []string
 }
 
-func NewReplicationWriteHandler(session *internal.OpSession, req *pub.PrepareWriteRequest) (adapters.Writer, error) {
+func NewReplicationWriteHandler(session *internal.OpSession, req *pub.PrepareWriteRequest) (internal.Writer, error) {
 
 	w := &ReplicationWriter{
 		req: req,
@@ -505,5 +504,5 @@ func (s NaveegoReplicationVersioningSettings) JSON() string {
 	return string(j)
 }
 
-var _ adapters.Writer = &DefaultWriteHandler{}
-var _ adapters.Writer = &ReplicationWriter{}
+var _ internal.Writer = &DefaultWriteHandler{}
+var _ internal.Writer = &ReplicationWriter{}

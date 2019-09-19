@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/hashicorp/go-hclog"
 	"github.com/naveego/plugin-pub-mssql/internal"
-	"github.com/naveego/plugin-pub-mssql/internal/adapters"
 	"github.com/naveego/plugin-pub-mssql/internal/meta"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 	"github.com/pkg/errors"
@@ -17,7 +16,7 @@ import (
 type MetadataSource struct {
 }
 
-func (m MetadataSource) GetRealTimeHelper() (adapters.RealTimeHelper, error) {
+func (m MetadataSource) GetRealTimeHelper() (internal.RealTimeHelper, error) {
 	return NewRealTimeHelper()
 }
 
@@ -177,15 +176,15 @@ AND SPECIFIC_NAME = @name
 	return properties, nil
 }
 
-func (m MetadataSource) GetSettings(settingsJson []byte) (adapters.Settings, error) {
+func (m MetadataSource) GetSettings(settingsJson []byte) (internal.Settings, error) {
 	return NewSettings(settingsJson)
 }
 
-func (m MetadataSource) GetSchemaDiscoverer(log hclog.Logger) (adapters.SchemaDiscoverer, error) {
+func (m MetadataSource) GetSchemaDiscoverer(log hclog.Logger) (internal.SchemaDiscoverer, error) {
 	return NewSchemaDiscoverer(log)
 }
 
-func (m MetadataSource) GetWriter(session *internal.OpSession, req *pub.PrepareWriteRequest) (adapters.Writer, error) {
+func (m MetadataSource) GetWriter(session *internal.OpSession, req *pub.PrepareWriteRequest) (internal.Writer, error) {
 	if req.Replication == nil {
 		return NewDefaultWriteHandler(session, req)
 	}
@@ -222,4 +221,4 @@ func getSchemaID(schemaName, tableName string) string {
 	}
 }
 
-var _ adapters.MetadataSource = &MetadataSource{}
+var _ internal.MetadataSource = &MetadataSource{}
