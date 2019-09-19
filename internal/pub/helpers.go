@@ -138,7 +138,7 @@ func (c *Count) Format() string {
 	}
 }
 
-func NewConnectRequest(settings interface{}) (*ConnectRequest) {
+func NewConnectRequest(settings interface{}) *ConnectRequest {
 	b, err := json.Marshal(settings)
 	if err != nil {
 		return &ConnectRequest{}
@@ -353,7 +353,7 @@ func (l *hclLogAdapter) StandardLogger(opts *hclog.StandardLoggerOptions) *log.L
 
 type UnmarshalledRecord struct {
 	Record
-	Data                 map[string]interface{} `json:"data"`
+	Data                 map[string]interface{}       `json:"data"`
 	UnmarshalledVersions []*UnmarshalledVersionRecord `json:"unmarshalledVersions"`
 }
 
@@ -363,7 +363,7 @@ func (u UnmarshalledRecord) String() string {
 }
 
 func (u UnmarshalledRecord) Clone() *UnmarshalledRecord {
-	j, _:= json.Marshal(u)
+	j, _ := json.Marshal(u)
 	var other UnmarshalledRecord
 	_ = json.Unmarshal(j, &other)
 	return &other

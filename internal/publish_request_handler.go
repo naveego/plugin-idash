@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -315,8 +316,6 @@ func GetRecordsRealTimeMiddleware() PublishMiddleware {
 			if err != nil {
 				return errors.Wrap(err, "get next change tracking version")
 			}
-
-
 
 			realTimeSettings := req.RealTimeSettings
 			err = req.Store.DB.Update(func(tx *bolt.Tx) error {
@@ -746,6 +745,68 @@ func buildSchemaDataQueryArgs(req PublishRequest, allRowKeys []meta.RowKeys) (te
 	}
 
 	return templateArgs, nil
+}
+
+func buildQuery(req *pub.ReadRequest) (string, error) {
+
+	if req.Schema.Query != "" {
+		return req.Schema.Query, nil
+	}
+
+	w := new(strings.Builder)
+	w.WriteString("select ")
+	var columnIDs []string
+	for _, p := range req.Schema.Properties {
+		columnIDs = append(columnIDs, p.Id)
+	}
+	columns := strings.Join(columnIDs, ", ")
+	fmt.Fprintln(w, columns)
+	fmt.Fprintln(w, "from ", req.Schema.Id)
+
+	if len(req.Filters) > 0 {
+		fmt.Fprintln(w, "where")
+
+		properties := make(map[string]*pub.Property, len(req.Schema.Properties))
+		for _, p := range req.Schema.Properties {
+			properties[p.Id] = p
+		}
+
+		var filters []string
+		for _, f := range req.Filters {
+			property, ok := properties[f.PropertyId]
+			if !ok {
+				continue
+			}
+
+			wf := new(strings.Builder)
+
+			fmt.Fprintf(wf, "  %s ", f.PropertyId)
+			switch f.Kind {
+			case pub.PublishFilter_EQUALS:
+				fmt.Fprint(wf, "= ")
+			case pub.PublishFilter_GREATER_THAN:
+				fmt.Fprint(wf, "> ")
+			case pub.PublishFilter_LESS_THAN:
+				fmt.Fprint(wf, "< ")
+			default:
+				continue
+			}
+
+			switch property.Type {
+			case pub.PropertyType_INTEGER, pub.PropertyType_FLOAT:
+				fmt.Fprintf(wf, "%v", f.Value)
+			default:
+				fmt.Fprintf(wf, "CAST('%s' as %s)", f.Value, property.TypeAtSource)
+			}
+
+			filters = append(filters, wf.String())
+		}
+
+		fmt.Fprintln(w, strings.Join(filters, "AND\n  "))
+
+	}
+
+	return w.String(), nil
 }
 
 // commitVersion commits the version by writing out a state commit to the out channel.

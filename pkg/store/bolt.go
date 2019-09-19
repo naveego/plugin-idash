@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-
 type BoltStore struct {
 	DB   *bolt.DB
 	path string
@@ -15,7 +14,6 @@ type BoltStore struct {
 
 var boltLock = new(sync.Mutex)
 var boltPool = map[string]BoltStore{}
-
 
 func GetBoltStore(path string) (BoltStore, error) {
 	boltLock.Lock()
@@ -26,7 +24,7 @@ func GetBoltStore(path string) (BoltStore, error) {
 		return store, nil
 	}
 
-	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout:5*time.Second})
+	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		return BoltStore{}, err
 	}
@@ -75,4 +73,3 @@ func DestroyBoltStore(store BoltStore) error {
 
 	return err
 }
-

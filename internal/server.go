@@ -8,15 +8,14 @@ import (
 	"github.com/LK4D4/joincontext"
 	"github.com/hashicorp/go-hclog"
 	jsonschema "github.com/naveego/go-json-schema"
+	"github.com/naveego/plugin-pub-mssql/internal/adapters"
+	"github.com/naveego/plugin-pub-mssql/internal/adapters/mssql"
 	"github.com/naveego/plugin-pub-mssql/internal/meta"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"os"
-	"regexp"
-	"sort"
-	"strings"
 	"sync"
 )
 
@@ -44,15 +43,16 @@ type Session struct {
 	Cancel     func()
 	Publishing bool
 	Log        hclog.Logger
-	Settings   *Settings
-	Writer     Writer
+	MetadataSource adapters.MetadataSource
+	Settings   adapters.Settings
+	Writer     adapters.Writer
 	// tables that were discovered during connect
 	SchemaInfo       map[string]*meta.Schema
 	StoredProcedures []string
-	RealTimeHelper   *RealTimeHelper
+	RealTimeHelper   adapters.RealTimeHelper
 	Config           Config
 	DB               *sql.DB
-	SchemaDiscoverer SchemaDiscoverer
+	SchemaDiscoverer adapters.SchemaDiscoverer
 }
 
 type OpSession struct {
@@ -170,105 +170,60 @@ func (s *Server) Connect(ctx context.Context, req *pub.ConnectRequest) (*pub.Con
 
 	session.Ctx, session.Cancel = context.WithCancel(context.Background())
 
-	settings := new(Settings)
-	if err := json.Unmarshal([]byte(req.SettingsJson), settings); err != nil {
+	switch adapters.Driver {
+	case adapters.MSSQLDriver:
+		metadataSource, err := mssql.NewMetadataSource()
+		if err != nil {
+
+		}
+
+		session.MetadataSource = metadataSource
+		break
+	case adapters.SnowflakeDriver:
+		//metadataSource, err := snowflake.NewMetadataSource()
+		//if err != nil {
+		//
+		//}
+		//
+		//session.MetadataSource = metadataSource
+		break
+	}
+
+	session.Settings, err = session.MetadataSource.GetSettings([]byte(req.SettingsJson))
+	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	if err := settings.Validate(); err != nil {
+	if err := session.Settings.Validate(); err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	connectionString, err := settings.GetConnectionString()
+	connectionString, err := session.Settings.GetConnectionString()
 	if err != nil {
 		return nil, err
 	}
 
-	session.Settings = settings
-
-	session.DB, err = sql.Open("sqlserver", connectionString)
+	session.DB, err = sql.Open(adapters.Driver, connectionString)
 	if err != nil {
 		return nil, errors.Errorf("could not open connection: %s", err)
 	}
 
-	rows, err := session.DB.Query(`SELECT t.TABLE_NAME
-     , t.TABLE_SCHEMA
-     , t.TABLE_TYPE
-     , c.COLUMN_NAME
-     , tc.CONSTRAINT_TYPE
-, CASE
-  WHEN exists (SELECT 1 FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID(t.TABLE_SCHEMA + '.' + t.TABLE_NAME))
-  THEN 1
-  ELSE 0
-  END AS CHANGE_TRACKING
-FROM INFORMATION_SCHEMA.TABLES AS t
-       INNER JOIN INFORMATION_SCHEMA.COLUMNS AS c ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
-       LEFT OUTER JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE AS ccu
-                       ON ccu.COLUMN_NAME = c.COLUMN_NAME AND ccu.TABLE_NAME = t.TABLE_NAME AND
-                          ccu.TABLE_SCHEMA = t.TABLE_SCHEMA
-       LEFT OUTER JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS tc
-                       ON tc.CONSTRAINT_NAME = ccu.CONSTRAINT_NAME AND tc.CONSTRAINT_SCHEMA = ccu.CONSTRAINT_SCHEMA
-
-ORDER BY TABLE_NAME`)
+	session.SchemaInfo , err = session.MetadataSource.GetSchemaInfoMap(session.DB)
 	if err != nil {
-		return nil, errors.Errorf("could not read database schema: %s", err)
+		return nil, errors.Wrap(err, "could not read table schemas")
 	}
 
-	// Collect table names for display in UIs.
-	for rows.Next() {
-		var (
-			schema, table, typ, columnName string
-			constraint                     *string
-			changeTracking                 bool
-		)
-		err = rows.Scan(&table, &schema, &typ, &columnName, &constraint, &changeTracking)
-		if err != nil {
-			return nil, errors.Wrap(err, "could not read table schema")
-		}
-		id := GetSchemaID(schema, table)
-		info, ok := session.SchemaInfo[id]
-		if !ok {
-			info = &meta.Schema{
-				ID:               id,
-				IsTable:          typ == "BASE TABLE",
-				IsChangeTracking: changeTracking,
-			}
-			session.SchemaInfo[id] = info
-		}
-		columnName = fmt.Sprintf("[%s]", columnName)
-		columnInfo, ok := info.LookupColumn(columnName)
-		if !ok {
-			columnInfo = info.AddColumn(&meta.Column{ID: columnName})
-		}
-		columnInfo.IsKey = columnInfo.IsKey || constraint != nil && *constraint == "PRIMARY KEY"
-	}
-
-	rows, err = session.DB.Query("SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.routines WHERE routine_type = 'PROCEDURE'")
+	session.StoredProcedures , err = session.MetadataSource.GetStoredProcedures(session.DB)
 	if err != nil {
-		return nil, errors.Errorf("could not read stored procedures from database: %s", err)
+		return nil, errors.Wrap(err, "could not read stored procedures")
 	}
 
-	for rows.Next() {
-		var schema, name string
-		var safeName string
-		err = rows.Scan(&schema, &name)
-		if err != nil {
-			return nil, errors.Wrap(err, "could not read stored procedure schema")
-		}
-		if schema == "dbo" {
-			safeName = makeSQLNameSafe(name)
-		} else {
-			safeName = fmt.Sprintf("%s.%s", makeSQLNameSafe(schema), makeSQLNameSafe(name))
-		}
-		session.StoredProcedures = append(session.StoredProcedures, safeName)
+	session.SchemaDiscoverer, err = session.MetadataSource.GetSchemaDiscoverer(s.log.With("cmp", "SchemaDiscoverer"))
+	if err != nil {
+		return nil, errors.Wrap(err, "could not create schema discoverer")
 	}
-	sort.Strings(session.StoredProcedures)
 
 	s.session = session
-
-	session.SchemaDiscoverer = SchemaDiscoverer{
-		Log: s.log.With("cmp", "SchemaDiscoverer"),
-	}
 
 	s.log.Debug("Connect completed successfully.")
 
@@ -306,7 +261,7 @@ func (s *Server) ConfigureRealTime(ctx context.Context, req *pub.ConfigureRealTi
 	}
 
 	if session.RealTimeHelper == nil {
-		session.RealTimeHelper = new(RealTimeHelper)
+		session.RealTimeHelper, err = session.MetadataSource.GetRealTimeHelper()
 	}
 
 	ctx, cancel := context.WithCancel(session.Ctx)
@@ -332,7 +287,7 @@ func (s *Server) DiscoverSchemasStream(req *pub.DiscoverSchemasRequest, stream p
 		return err
 	}
 
-	discovered, err := s.session.SchemaDiscoverer.DiscoverSchemas(session, req)
+	discovered, err := session.SchemaDiscoverer.DiscoverSchemas(session, req)
 	if err != nil {
 		return err
 	}
@@ -367,7 +322,7 @@ func (s *Server) DiscoverSchemas(ctx context.Context, req *pub.DiscoverSchemasRe
 		return nil, err
 	}
 
-	schemas, err := DiscoverSchemasSync(session, session.SchemaDiscoverer, req)
+	schemas, err := session.SchemaDiscoverer.DiscoverSchemasSync(session, req)
 
 	return &pub.DiscoverSchemasResponse{
 		Schemas: schemas,
@@ -387,8 +342,8 @@ func (s *Server) ReadStream(req *pub.ReadRequest, stream pub.Publisher_ReadStrea
 
 	s.log.Debug("Got PublishStream request.", "req", string(jsonReq))
 
-	if session.Settings.PrePublishQuery != "" {
-		_, err := session.DB.Exec(session.Settings.PrePublishQuery)
+	if session.Settings.GetPrePublishQuery() != "" {
+		_, err := session.DB.Exec(session.Settings.GetPrePublishQuery())
 		if err != nil {
 			return errors.Errorf("error running pre-publish query: %s", err)
 		}
@@ -401,8 +356,8 @@ func (s *Server) ReadStream(req *pub.ReadRequest, stream pub.Publisher_ReadStrea
 
 	err = handler.Handle(innerRequest)
 
-	if session.Settings.PostPublishQuery != "" {
-		_, postPublishErr := session.DB.Exec(session.Settings.PostPublishQuery)
+	if session.Settings.GetPostPublishQuery() != "" {
+		_, postPublishErr := session.DB.Exec(session.Settings.GetPostPublishQuery())
 		if postPublishErr != nil {
 			if err != nil {
 				postPublishErr = errors.Errorf("%s (publish had already stopped with error: %s)", postPublishErr, err)
@@ -459,14 +414,7 @@ func (s *Server) ConfigureWrite(ctx context.Context, req *pub.ConfigureWriteRequ
 		}, nil
 	}
 
-	// build schema
-	var query string
 	var properties []*pub.Property
-	var data string
-	var row *sql.Row
-	var stmt *sql.Stmt
-	var rows *sql.Rows
-	var sprocSchema, sprocName string
 
 	// get form data
 	var formData ConfigureWriteFormData
@@ -475,65 +423,9 @@ func (s *Server) ConfigureWrite(ctx context.Context, req *pub.ConfigureWriteRequ
 		goto Done
 	}
 
-	if formData.StoredProcedure == "" {
-		goto Done
-	}
-
-	sprocSchema, sprocName = decomposeSafeName(formData.StoredProcedure)
-	// check if stored procedure exists
-	query = `SELECT 1
-FROM information_schema.routines
-WHERE routine_type = 'PROCEDURE'
-AND SPECIFIC_SCHEMA = @schema
-AND SPECIFIC_NAME = @name
-`
-	stmt, err = session.DB.Prepare(query)
+	properties, err = session.MetadataSource.GetStoredProcedureProperties(session.DB, formData)
 	if err != nil {
-		errArray = append(errArray, fmt.Sprintf("error checking stored procedure: %s", err))
-		goto Done
-	}
-
-	row = stmt.QueryRow(sql.Named("schema", sprocSchema), sql.Named("name", sprocName))
-
-	err = row.Scan(&data)
-	if err != nil {
-		errArray = append(errArray, fmt.Sprintf("stored procedure does not exist: %s", err))
-		goto Done
-	}
-
-	// get params for stored procedure
-	query = `SELECT PARAMETER_NAME AS Name, DATA_TYPE AS Type
-FROM INFORMATION_SCHEMA.PARAMETERS
-WHERE SPECIFIC_SCHEMA = @schema
-AND SPECIFIC_NAME = @name
-`
-	stmt, err = session.DB.Prepare(query)
-	if err != nil {
-		errArray = append(errArray, fmt.Sprintf("error preparing to get parameters for stored procedure: %s", err))
-		goto Done
-	}
-
-	rows, err = stmt.Query(sql.Named("schema", sprocSchema), sql.Named("name", sprocName))
-	if err != nil {
-		errArray = append(errArray, fmt.Sprintf("error getting parameters for stored procedure: %s", err))
-		goto Done
-	}
-
-	// add all params to properties of schema
-	for rows.Next() {
-		var colName, colType string
-		err := rows.Scan(&colName, &colType)
-		if err != nil {
-			errArray = append(errArray, fmt.Sprintf("error getting parameters for stored procedure: %s", err))
-			goto Done
-		}
-
-		properties = append(properties, &pub.Property{
-			Id:           strings.TrimPrefix(colName, "@"),
-			TypeAtSource: colType,
-			Type:         meta.ConvertSQLTypeToPluginType(colType, 0),
-			Name:         strings.TrimPrefix(colName, "@"),
-		})
+		return nil, errors.Wrap(err, "could not read stored procedure properties")
 	}
 
 Done:
@@ -570,7 +462,7 @@ func (s *Server) ConfigureReplication(ctx context.Context, req *pub.ConfigureRep
 			return nil, errors.Wrapf(err, "invalid data json %q", req.Form.DataJson)
 		}
 
-		s.log.Debug("Configure replication request had data.", "data", string(req.Form.DataJson))
+		s.log.Debug("Configure replication request had data.", "data", req.Form.DataJson)
 
 
 		if req.Schema != nil {
@@ -595,7 +487,7 @@ func (s *Server) ConfigureReplication(ctx context.Context, req *pub.ConfigureRep
 				return nil, err
 			}
 
-			_, err = PrepareWriteHandler(session, &pub.PrepareWriteRequest{
+			_, err = session.MetadataSource.GetWriter(session, &pub.PrepareWriteRequest{
 				Schema:req.Schema,
 				Replication: &pub.ReplicationWriteRequest{
 				SettingsJson:req.Form.DataJson,
@@ -626,8 +518,7 @@ func (s *Server) PrepareWrite(ctx context.Context, req *pub.PrepareWriteRequest)
 		return nil, err
 	}
 
-	s.session.Writer, err = PrepareWriteHandler(session, req)
-
+	s.session.Writer, err = session.MetadataSource.GetWriter(session, req)
 	if err != nil {
 		return nil, err
 	}
@@ -675,9 +566,6 @@ func (s *Server) WriteStream(stream pub.Publisher_WriteStreamServer) error {
 		if err == nil {
 			err = session.Writer.Write(session, unmarshalledRecord)
 		}
-
-
-
 
 		if err != nil {
 			// send failure ack to agent
@@ -753,112 +641,26 @@ func (s *Server) getOpSession(ctx context.Context) (*OpSession, error) {
 	return s.session.OpSession(ctx), nil
 }
 
-var schemaIDParseRE = regexp.MustCompile(`(?:\[([^\]]+)\].)?(?:)(?:\[([^\]]+)\])`)
-
-func buildQuery(req *pub.ReadRequest) (string, error) {
-
-	if req.Schema.Query != "" {
-		return req.Schema.Query, nil
-	}
-
-	w := new(strings.Builder)
-	w.WriteString("select ")
-	var columnIDs []string
-	for _, p := range req.Schema.Properties {
-		columnIDs = append(columnIDs, p.Id)
-	}
-	columns := strings.Join(columnIDs, ", ")
-	fmt.Fprintln(w, columns)
-	fmt.Fprintln(w, "from ", req.Schema.Id)
-
-	if len(req.Filters) > 0 {
-		fmt.Fprintln(w, "where")
-
-		properties := make(map[string]*pub.Property, len(req.Schema.Properties))
-		for _, p := range req.Schema.Properties {
-			properties[p.Id] = p
-		}
-
-		var filters []string
-		for _, f := range req.Filters {
-			property, ok := properties[f.PropertyId]
-			if !ok {
-				continue
-			}
-
-			wf := new(strings.Builder)
-
-			fmt.Fprintf(wf, "  %s ", f.PropertyId)
-			switch f.Kind {
-			case pub.PublishFilter_EQUALS:
-				fmt.Fprint(wf, "= ")
-			case pub.PublishFilter_GREATER_THAN:
-				fmt.Fprint(wf, "> ")
-			case pub.PublishFilter_LESS_THAN:
-				fmt.Fprint(wf, "< ")
-			default:
-				continue
-			}
-
-			switch property.Type {
-			case pub.PropertyType_INTEGER, pub.PropertyType_FLOAT:
-				fmt.Fprintf(wf, "%v", f.Value)
-			default:
-				fmt.Fprintf(wf, "CAST('%s' as %s)", f.Value, property.TypeAtSource)
-			}
-
-			filters = append(filters, wf.String())
-		}
-
-		fmt.Fprintln(w, strings.Join(filters, "AND\n  "))
-
-	}
-
-	return w.String(), nil
-}
-
-var errNotConnected = errors.New("not connected")
-
-
-func formatTypeAtSource(t string, maxLength, precision, scale int) string {
-	var maxLengthString string
-	if maxLength < 0 {
-		maxLengthString = "MAX"
-	} else {
-		maxLengthString = fmt.Sprintf("%d", maxLength)
-	}
-
-	switch t {
-	case "char", "varchar", "nvarchar", "nchar", "binary", "varbinary", "text", "ntext":
-		return fmt.Sprintf("%s(%s)", t, maxLengthString)
-	case "decimal", "numeric":
-		return fmt.Sprintf("%s(%d,%d)", t, precision, scale)
-	case "float", "real":
-		return fmt.Sprintf("%s(%d)", t, precision)
-	case "datetime2":
-		return fmt.Sprintf("%s(%d)", t, scale)
-	default:
-		return t
-	}
-}
-
-func decomposeSafeName(safeName string) (schema, name string) {
-	segs := strings.Split(safeName, ".")
-	switch len(segs) {
-	case 0:
-		return "", ""
-	case 1:
-		return "dbo", strings.Trim(segs[0], "[]")
-	case 2:
-		return strings.Trim(segs[0], "[]"), strings.Trim(segs[1], "[]")
-	default:
-		return "", ""
-	}
-}
-
-func makeSQLNameSafe(name string) string {
-	if ok, _ := regexp.MatchString(`\W`, name); !ok {
-		return name
-	}
-	return fmt.Sprintf("[%s]", name)
-}
+//var errNotConnected = errors.New("not connected")
+//
+//func formatTypeAtSource(t string, maxLength, precision, scale int) string {
+//	var maxLengthString string
+//	if maxLength < 0 {
+//		maxLengthString = "MAX"
+//	} else {
+//		maxLengthString = fmt.Sprintf("%d", maxLength)
+//	}
+//
+//	switch t {
+//	case "char", "varchar", "nvarchar", "nchar", "binary", "varbinary", "text", "ntext":
+//		return fmt.Sprintf("%s(%s)", t, maxLengthString)
+//	case "decimal", "numeric":
+//		return fmt.Sprintf("%s(%d,%d)", t, precision, scale)
+//	case "float", "real":
+//		return fmt.Sprintf("%s(%d)", t, precision)
+//	case "datetime2":
+//		return fmt.Sprintf("%s(%d)", t, scale)
+//	default:
+//		return t
+//	}
+//}

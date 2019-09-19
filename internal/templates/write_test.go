@@ -12,13 +12,13 @@ import (
 
 var _ = Describe("RenderReplicationTableCreationDDLArgs", func() {
 
-	It("should render correctly", func(){
+	It("should render correctly", func() {
 		actual, err := RenderReplicationTableCreationDDLArgs(ReplicationTableCreationDDL{
-			Schema:(&meta.Schema{
+			Schema: (&meta.Schema{
 				ID: "[test-schema].[test-table]",
 			}).WithColumns([]*meta.Column{
-				{ID: "[key1]", IsKey:true, SQLType:"int"},
-				{ID: "key2", IsKey:true, SQLType: "char(5)"},
+				{ID: "[key1]", IsKey: true, SQLType: "int"},
+				{ID: "key2", IsKey: true, SQLType: "char(5)"},
 				{ID: "value1", SQLType: "varchar(max)"},
 			}),
 		})

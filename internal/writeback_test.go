@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	. "github.com/naveego/plugin-pub-mssql/internal"
+	"github.com/naveego/plugin-pub-mssql/internal/adapters/mssql"
 	"github.com/naveego/plugin-pub-mssql/internal/constants"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 	"github.com/naveego/plugin-pub-mssql/pkg/sqlstructs"
@@ -36,7 +37,7 @@ IF OBJECT_ID('w3.Replication.Versions', 'U') IS NOT NULL
 		log := GetLogger()
 		session = &Session{
 			Log: log,
-			SchemaDiscoverer: SchemaDiscoverer{
+			SchemaDiscoverer: mssql.SchemaDiscoverer{
 				Log: log,
 			},
 			Ctx: context.Background(),
@@ -116,10 +117,10 @@ IF OBJECT_ID('w3.Replication.Versions', 'U') IS NOT NULL
 
 	It("should create tables when writer is initialized", func() {
 
-		_, err := NewReplicationWriteHandler(op, req)
+		_, err := mssql.NewReplicationWriteHandler(op, req)
 		Expect(err).ToNot(HaveOccurred())
 
-		schemas, err := DiscoverSchemasSync(op, session.SchemaDiscoverer, &pub.DiscoverSchemasRequest{
+		schemas, err := session.SchemaDiscoverer.DiscoverSchemasSync(op, &pub.DiscoverSchemasRequest{
 			Mode:       pub.DiscoverSchemasRequest_ALL,
 			SampleSize: 0,
 		})
@@ -143,7 +144,7 @@ IF OBJECT_ID('w3.Replication.Versions', 'U') IS NOT NULL
 		const pathPrefix = "testdata/replication_1"
 		records := GetInputs(pathPrefix, req)
 
-		sut, err := NewReplicationWriteHandler(op, req)
+		sut, err := mssql.NewReplicationWriteHandler(op, req)
 
 		Expect(err).ToNot(HaveOccurred())
 

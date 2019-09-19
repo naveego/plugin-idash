@@ -1,4 +1,4 @@
-package meta
+package mssql
 
 import (
 	"github.com/naveego/plugin-pub-mssql/internal/pub"

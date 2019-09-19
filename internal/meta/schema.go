@@ -136,7 +136,7 @@ func (c Columns) MakeSQLValuesFromMap(m map[string]interface{}) string {
 		}
 	}
 
-	return  strings.Join(values, ", ")
+	return strings.Join(values, ", ")
 
 }
 
@@ -148,14 +148,12 @@ func (c Columns) MakeSQLColumnNameList() string {
 
 	for _, column := range c {
 
-			values = append(values, column.ID)
+		values = append(values, column.ID)
 	}
 
 	return strings.Join(values, ", ")
 
 }
-
-
 
 func (c Columns) OmitKeys() Columns {
 	var out Columns
@@ -172,12 +170,12 @@ func (c Columns) OmitIDs(omit ...string) Columns {
 	for _, column := range c {
 		skip := false
 		for _, o := range omit {
-			if column.ID == o || column.ID ==`[`+o+`]` {
+			if column.ID == o || column.ID == `[`+o+`]` {
 				skip = true
 				break
 			}
 		}
-		if !skip{
+		if !skip {
 			out = append(out, column)
 		}
 	}
@@ -257,7 +255,7 @@ func (c Column) RenderSQLValue(v interface{}) string {
 // will be returned.
 func (c Column) CastForSelect(expression string) string {
 	baseType := strings.ToLower(strings.Split(c.SQLType, "(")[0])
-	switch (baseType) {
+	switch baseType {
 	case "datetimeoffset":
 		return expression
 	case "datetime2":

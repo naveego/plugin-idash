@@ -29,12 +29,12 @@ var RootCmd = &cobra.Command{
 	Short: "A publisher that pulls data from SQL.",
 	Long: fmt.Sprintf(`Version %s
 Runs the publisher in externally controlled mode.`, version.Version.String()),
-	RunE: func(cmd *cobra.Command, args []string)  error {
+	RunE: func(cmd *cobra.Command, args []string) error {
 
 		logf, err := rotatelogs.New(
 			"./log.%Y%m%d%H%M",
 			rotatelogs.WithLinkName("./log"),
-			rotatelogs.WithMaxAge(24 * time.Hour),
+			rotatelogs.WithMaxAge(24*time.Hour),
 			rotatelogs.WithRotationTime(time.Hour),
 		)
 		if err != nil {
@@ -49,35 +49,34 @@ Runs the publisher in externally controlled mode.`, version.Version.String()),
 
 		log.Info("Starting.")
 
-		defer func(){
-			if err := recover(); err != nil{
+		defer func() {
+			if err := recover(); err != nil {
 				log.Error("panic", "error", err)
 			}
 		}()
 
-		go func(){
+		go func() {
 			_, _ = ioutil.ReadAll(os.Stdin)
 			_, _ = fmt.Fprintf(logf, "Stdin has been closed. This probably means the agent has exited. Plugin will now exit.\n")
 			os.Exit(0)
 		}()
 
-
 		originalPPID := os.Getppid()
-		go func(){
+		go func() {
 			for {
 				<-time.After(5 * time.Second)
 				ppid := os.Getppid()
 				if ppid != originalPPID {
-				_, _ = fmt.Fprintf(logf, "Parent process appears to have exited (ppid changed from %d to %d). This probably means the agent has exited. Plugin will now exit.\n",					originalPPID, ppid)
+					_, _ = fmt.Fprintf(logf, "Parent process appears to have exited (ppid changed from %d to %d). This probably means the agent has exited. Plugin will now exit.\n", originalPPID, ppid)
 					os.Exit(0)
 				}
 			}
 		}()
 
-		go func(){
+		go func() {
 			sigCh := make(chan os.Signal)
 			signal.Notify(sigCh, os.Interrupt, os.Kill)
-			sig:=<-sigCh
+			sig := <-sigCh
 			_, _ = fmt.Fprintf(logf, "Got %s signal. This probably means the agent wants us to exit. Plugin will now exit.\n", sig)
 			os.Exit(0)
 		}()
@@ -86,9 +85,9 @@ Runs the publisher in externally controlled mode.`, version.Version.String()),
 
 		plugin.Serve(&plugin.ServeConfig{
 			HandshakeConfig: plugin.HandshakeConfig{
-				ProtocolVersion: plugins.PublisherProtocolVersion,
-				MagicCookieKey:plugins.PublisherMagicCookieKey,
-				MagicCookieValue:plugins.PublisherMagicCookieValue,
+				ProtocolVersion:  plugins.PublisherProtocolVersion,
+				MagicCookieKey:   plugins.PublisherMagicCookieKey,
+				MagicCookieValue: plugins.PublisherMagicCookieValue,
 			},
 			Plugins: map[string]plugin.Plugin{
 				"publisher": pub.NewServerPlugin(server),

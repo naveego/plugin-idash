@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	. "github.com/naveego/plugin-pub-mssql/internal"
+	"github.com/naveego/plugin-pub-mssql/internal/adapters/mssql"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 	"github.com/naveego/plugin-pub-mssql/pkg/sqlstructs"
 	. "github.com/onsi/ginkgo"
@@ -38,7 +39,7 @@ var _ = Describe("Server", func() {
 
 	var (
 		sut      pub.PublisherServer
-		settings Settings
+		settings mssql.Settings
 	)
 
 	BeforeEach(func() {
@@ -281,7 +282,7 @@ var _ = Describe("Server", func() {
 
 			var req *pub.ReadRequest
 
-			setup := func(settings Settings) {
+			setup := func(settings mssql.Settings) {
 				var prepost *pub.Schema
 				_, err := sut.Connect(context.Background(), pub.NewConnectRequest(settings))
 				Expect(err).ToNot(HaveOccurred())

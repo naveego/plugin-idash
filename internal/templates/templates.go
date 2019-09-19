@@ -20,18 +20,18 @@ type BatchQueryArgs struct {
 }
 
 type BatchTrackedTable struct {
-	ID    string
-	SelectQuery string
+	ID           string
+	SelectQuery  string
 	ProjectQuery string
-	Keys []string
-	NonKeys []string
+	Keys         []string
+	NonKeys      []string
 }
 
 var simplifierRE = regexp.MustCompile(`\W+`)
 
 func UniquifySQLName(x string) string {
 	x = strings.Trim(x, "[]")
-	x =  simplifierRE.ReplaceAllString(x, "_")
+	x = simplifierRE.ReplaceAllString(x, "_")
 	h := md5.New()
 	h.Write([]byte(x))
 	o := h.Sum(nil)
@@ -46,13 +46,12 @@ func PrefixColumn(prefix, id string) string {
 	return fmt.Sprintf("[%s.%s]", prefix, id)
 }
 
-
 func compileTemplate(name, input string) *template.Template {
 	t, err := template.New(name).
 		Funcs(sprig.TxtFuncMap()).
 		Funcs(template.FuncMap{
-			"uniquify":     UniquifySQLName,
-			"PrefixColumn": PrefixColumn,
+			"uniquify":                   UniquifySQLName,
+			"PrefixColumn":               PrefixColumn,
 			"ConvertPluginTypeToSQLType": meta.ConvertPluginTypeToSQLType,
 		}).
 		Parse(input)
@@ -70,10 +69,8 @@ func renderTemplate(t *template.Template, args interface{}) (string, error) {
 		return "", errors.Wrap(err, "error rendering template")
 	}
 
-	return w.String(),nil
+	return w.String(), nil
 }
-
-
 
 var selfBridgeQueryTemplate = compileTemplate("selfBridgeQueryTemplate",
 	// language=GoTemplate
@@ -83,7 +80,7 @@ var selfBridgeQueryTemplate = compileTemplate("selfBridgeQueryTemplate",
   	{{- range rest .SchemaInfo.Keys }}
   	, {{ . }} as {{ PrefixColumn "Schema" . }},  {{ . }} as {{ PrefixColumn "Dependency" . }}
   	{{- end }}
-FROM {{ .SchemaInfo.ID }}` )
+FROM {{ .SchemaInfo.ID }}`)
 
 type SelfBridgeQueryArgs struct {
 	SchemaInfo *meta.Schema
@@ -137,11 +134,10 @@ SELECT
 {{- range (rest .DependencyArgs.Keys ) }}
 	AND  {{ uniquify "Bridge" }}.{{ PrefixColumn "Dependency" . }} = {{ uniquify "CT" }}.{{ . }}
 {{- end }}	
-        	` )
-
+        	`)
 
 type SchemaDataQueryArgs struct {
-	SchemaArgs *meta.Schema
+	SchemaArgs       *meta.Schema
 	DependencyTables []*meta.Schema
 	// Keys to filter the schema records by.
 	RowKeys []meta.RowKeys
@@ -151,7 +147,7 @@ type SchemaDataQueryArgs struct {
 
 // RenderSchemaDataQuery renders the query used to actually retrieve data from a schema.
 func RenderSchemaDataQuery(args SchemaDataQueryArgs) (string, error) {
-	result, err :=  renderTemplate(schemaDataQuery, args)
+	result, err := renderTemplate(schemaDataQuery, args)
 	return result, err
 }
 

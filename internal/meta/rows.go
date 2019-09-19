@@ -66,8 +66,6 @@ func (r RowMap) JSON() string {
 	return string(b)
 }
 
-
-
 type RowValue struct {
 	ColumnID string
 	Value    interface{}
@@ -97,8 +95,8 @@ func (r RowKeys) String() string {
 // ToMapKey returns a string which contains all the keys.
 func (r RowKeys) ToMapKey() string {
 	w := new(strings.Builder)
-	for _, c := range r{
-		fmt.Fprintf(w, "%v|",c.Value)
+	for _, c := range r {
+		fmt.Fprintf(w, "%v|", c.Value)
 	}
 	return w.String()
 }
@@ -112,7 +110,6 @@ func (r RowKeys) HasNils() bool {
 	}
 	return false
 }
-
 
 func (r RowValues) String() string {
 	return fmt.Sprintf("%v", []RowValue(r))

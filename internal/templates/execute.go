@@ -5,7 +5,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-type Renderer interface{
+type Renderer interface {
 	Render() (string, error)
 }
 

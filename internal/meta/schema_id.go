@@ -14,8 +14,9 @@ schema.[table]
 [schema].[table]
 table
 [table]
- */
+*/
 var schemaIDWithBracketsRegex = regexp.MustCompile(`^(?:(\[[^]]+]|[^.]+)\.)?(\[?[^]\n]+]?)$`)
+
 type SchemaID string
 
 // SQLSchema returns the SQL schema from the schema ID (or "dbo" if there is no schema)
@@ -35,7 +36,7 @@ func (s SchemaID) SQLSchema() string {
 // surrounded by escaping `[]`.
 func (s SchemaID) SQLSchemaEsc() string {
 	schema := s.SQLSchema()
-	if strings.HasPrefix(schema, "["){
+	if strings.HasPrefix(schema, "[") {
 		return schema
 	}
 	return "[" + schema + "]"
@@ -51,12 +52,11 @@ func (s SchemaID) SQLTable() string {
 	return strings.Trim(segs[2], "[]")
 }
 
-
 // SQLTableEsc returns the SQL table from the schema ID (or "dbo" if there is no schema),
 // surrounded by escaping `[]`.
 func (s SchemaID) SQLTableEsc() string {
 	table := s.SQLTable()
-	if strings.HasPrefix(table, "["){
+	if strings.HasPrefix(table, "[") {
 		return table
 	}
 	return "[" + table + "]"

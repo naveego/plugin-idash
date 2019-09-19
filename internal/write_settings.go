@@ -2,6 +2,7 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 )
 
@@ -19,6 +20,14 @@ type ReplicationSettings struct {
 	GoldenRecordTable string `json:"goldenRecordTable" title:"Golden Record Table" description:"The table to store golden records in (will be created if it does not exist)." required:"true"`
 	VersionRecordTable string `json:"versionRecordTable" title:"Version Record Table" description:"The table to store version records in (will be created if it does not exist)." required:"true"`
 
+}
+
+func GetSchemaID(schemaName, tableName string) string {
+	if schemaName == "dbo" {
+		return fmt.Sprintf("[%s]", tableName)
+	} else {
+		return fmt.Sprintf("[%s].[%s]", schemaName, tableName)
+	}
 }
 
 func (r ReplicationSettings) GetNamespacedGoldenRecordTable() string {

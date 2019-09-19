@@ -16,12 +16,14 @@ builds:
   - windows
   goarch:
   - amd64
+  ldflags:
+  - '-X adapters.Driver=snowflake'
 archive:
   format: zip
   files:
   - manifest.json
   - icon.png
-  - LICENSE
+  - ../../LICENSE
   replacements:
 
 checksum:

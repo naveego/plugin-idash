@@ -33,14 +33,14 @@ func (c StringCanonicalizer) Canonicalize(s string) string {
 
 	key := strings.ToLower(s)
 
-	m:=c.m[key]
+	m := c.m[key]
 	m.s = s
-	m.c ++
+	m.c++
 
 	if m.c > 1 {
 		s = fmt.Sprintf("%s_%d", m.s, m.c)
 	}
-	c.m[key]=m
+	c.m[key] = m
 	return s
 }
 
@@ -61,7 +61,7 @@ func ToPascalCase(str string) string {
 	for _, r := range str {
 		c := string(r)
 		if c != " " {
-			if  prev == ""|| prev == " "{
+			if prev == "" || prev == " " {
 				c = strings.ToUpper(c)
 			}
 			buff.WriteString(c)

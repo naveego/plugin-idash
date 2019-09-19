@@ -7,15 +7,15 @@ import (
 )
 
 type ConfigurationFormResponseBuilder struct {
-	Response *ConfigurationFormResponse
+	Response   *ConfigurationFormResponse
 	FormSchema *jsonschema.JSONSchema
-	UISchema map[string]interface{}
-	Data map[string]interface{}
+	UISchema   map[string]interface{}
+	Data       map[string]interface{}
 }
 
 func NewConfigurationFormResponseBuilder(req *ConfigurationFormRequest) *ConfigurationFormResponseBuilder {
 	b := &ConfigurationFormResponseBuilder{
-		Response:&ConfigurationFormResponse{
+		Response: &ConfigurationFormResponse{
 			DataJson: req.DataJson,
 		},
 	}
@@ -23,7 +23,7 @@ func NewConfigurationFormResponseBuilder(req *ConfigurationFormRequest) *Configu
 	if req.DataJson != "" {
 		err := json.Unmarshal([]byte(req.DataJson), &b.Data)
 		if err != nil {
-			b.Response.Errors = []string{fmt.Sprintf("invalid data: %s",err.Error())}
+			b.Response.Errors = []string{fmt.Sprintf("invalid data: %s", err.Error())}
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	. "github.com/naveego/plugin-pub-mssql/internal"
+	"github.com/naveego/plugin-pub-mssql/internal/adapters/mssql"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -13,7 +14,7 @@ var _ = Describe("ConfigureRealTime", func() {
 
 	var (
 		sut      pub.PublisherServer
-		settings Settings
+		settings mssql.Settings
 	)
 
 	BeforeEach(func() {

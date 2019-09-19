@@ -1,7 +1,7 @@
 package internal_test
 
 import (
-	. "github.com/naveego/plugin-pub-mssql/internal"
+	"github.com/naveego/plugin-pub-mssql/internal/adapters/mssql"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -10,7 +10,7 @@ import (
 var _ = Describe("Settings", func() {
 
 	var (
-		settings Settings
+		settings mssql.Settings
 	)
 
 	BeforeEach(func() {
@@ -36,19 +36,19 @@ var _ = Describe("Settings", func() {
 		})
 
 		It("Should error if auth is unknown", func() {
-			settings.Auth = AuthType("bogus")
+			settings.Auth = mssql.AuthType("bogus")
 			settings.Username = ""
 			Expect(settings.Validate()).ToNot(Succeed())
 		})
 
 		It("Should error if auth is sql and username is not set", func() {
-			settings.Auth = AuthTypeSQL
+			settings.Auth = mssql.AuthTypeSQL
 			settings.Username = ""
 			Expect(settings.Validate()).ToNot(Succeed())
 		})
 
 		It("Should error if auth is sql and password is not set", func() {
-			settings.Auth = AuthTypeSQL
+			settings.Auth = mssql.AuthTypeSQL
 			settings.Password = ""
 			Expect(settings.Validate()).ToNot(Succeed())
 		})
@@ -58,7 +58,7 @@ var _ = Describe("Settings", func() {
 		})
 
 		It("Should succeed if settings are valid for windows", func() {
-			settings.Auth = AuthTypeWindows
+			settings.Auth = mssql.AuthTypeWindows
 			settings.Username = ""
 			settings.Password = ""
 			Expect(settings.Validate()).To(Succeed())

@@ -1,102 +1,116 @@
-package internal
+package mssql
 
 import (
 	"encoding/json"
 	"fmt"
-	jsonschema "github.com/naveego/go-json-schema"
+	"github.com/naveego/go-json-schema"
+	"github.com/naveego/plugin-pub-mssql/internal/adapters"
 	"github.com/pkg/errors"
+	"net/url"
 )
 
-//
-//import (
-//	"encoding/json"
-//	"fmt"
-//	"github.com/naveego/go-json-schema"
-//	"github.com/pkg/errors"
-//	"net/url"
-//)
-//
-//// Settings object for plugin
-//// Contains connection information and pre/post queries
-//type Settings struct {
-//	Host             string   `json:"host"`
-//	Port             int      `json:"port"`
-//	Instance         string   `json:"instance"`
-//	Database         string   `json:"database"`
-//	Auth             AuthType `json:"auth"`
-//	Username         string   `json:"username"`
-//	Password         string   `json:"password"`
-//	PrePublishQuery  string   `json:"prePublishQuery"`
-//	PostPublishQuery string   `json:"postPublishQuery"`
-//}
-//
-//// AuthType underlying type
-//type AuthType string
-//
-//// Authentication types
-//const (
-//	AuthTypeSQL     = AuthType("sql")
-//	AuthTypeWindows = AuthType("windows")
-//)
-//
-//// Validate returns an error if the Settings are not valid.
-//// It also populates the internal fields of settings.
-//func (s *Settings) Validate() error {
-//	if s.Host == "" {
-//		return errors.New("the host property must be set")
-//	}
-//
-//	if s.Database == "" {
-//		return errors.New("the database property must be set")
-//	}
-//
-//	switch s.Auth {
-//	case AuthTypeSQL:
-//		if s.Username == "" {
-//			return errors.New("when auth type is 'sql' the username property must be set")
-//		}
-//		if s.Password == "" {
-//			return errors.New("when auth type is 'sql' the password property must be set")
-//		}
-//	case AuthTypeWindows:
-//	case "":
-//		return errors.New("the auth property must be set")
-//	default:
-//		return fmt.Errorf("unrecognized auth type %q", s.Auth)
-//	}
-//
-//	return nil
-//}
-//
-//// GetConnectionString builds a connection string from a settings object
-//func (s *Settings) GetConnectionString() (string, error) {
-//	var host string
-//	err := s.Validate()
-//	if err != nil {
-//		return "", err
-//	}
-//
-//	if s.Port != 0 {
-//		host = fmt.Sprintf("%s:%d", s.Host, s.Port)
-//	} else {
-//		host = fmt.Sprintf("%s:%d", s.Host, 1433)
-//	}
-//
-//	u := &url.URL{
-//		Scheme:   "sqlserver",
-//		Host:     host,
-//		Path:     s.Instance, // if connecting to an instance instead of a port
-//		RawQuery: fmt.Sprintf("database=%s", s.Database),
-//	}
-//
-//	switch s.Auth {
-//	case AuthTypeSQL:
-//		u.User = url.UserPassword(s.Username, s.Password)
-//	}
-//
-//	return u.String(), nil
-//}
-//
+// Settings object for plugin
+// Contains connection information and pre/post queries
+type Settings struct {
+	Host             string   `json:"host"`
+	Port             int      `json:"port"`
+	Instance         string   `json:"instance"`
+	Database         string   `json:"database"`
+	Auth             AuthType `json:"auth"`
+	Username         string   `json:"username"`
+	Password         string   `json:"password"`
+	PrePublishQuery  string   `json:"prePublishQuery"`
+	PostPublishQuery string   `json:"postPublishQuery"`
+}
+
+// AuthType underlying type
+type AuthType string
+
+// Authentication types
+const (
+	AuthTypeSQL     = AuthType("sql")
+	AuthTypeWindows = AuthType("windows")
+)
+
+func NewSettings(settingsJson []byte) (adapters.Settings, error) {
+	var settings Settings
+	if err := json.Unmarshal(settingsJson, settings); err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	return &settings, nil
+}
+
+// Validate returns an error if the Settings are not valid.
+// It also populates the internal fields of settings.
+func (s *Settings) Validate() error {
+	if s.Host == "" {
+		return errors.New("the host property must be set")
+	}
+
+	if s.Database == "" {
+		return errors.New("the database property must be set")
+	}
+
+	switch s.Auth {
+	case AuthTypeSQL:
+		if s.Username == "" {
+			return errors.New("when auth type is 'sql' the username property must be set")
+		}
+		if s.Password == "" {
+			return errors.New("when auth type is 'sql' the password property must be set")
+		}
+	case AuthTypeWindows:
+	case "":
+		return errors.New("the auth property must be set")
+	default:
+		return fmt.Errorf("unrecognized auth type %q", s.Auth)
+	}
+
+	return nil
+}
+
+// GetConnectionString builds a connection string from a settings object
+func (s *Settings) GetConnectionString() (string, error) {
+	var host string
+	err := s.Validate()
+	if err != nil {
+		return "", err
+	}
+
+	if s.Port != 0 {
+		host = fmt.Sprintf("%s:%d", s.Host, s.Port)
+	} else {
+		host = fmt.Sprintf("%s:%d", s.Host, 1433)
+	}
+
+	u := &url.URL{
+		Scheme:   "sqlserver",
+		Host:     host,
+		Path:     s.Instance, // if connecting to an instance instead of a port
+		RawQuery: fmt.Sprintf("database=%s", s.Database),
+	}
+
+	switch s.Auth {
+	case AuthTypeSQL:
+		u.User = url.UserPassword(s.Username, s.Password)
+	}
+
+	return u.String(), nil
+}
+
+func (s *Settings) GetPrePublishQuery() string {
+	return s.PrePublishQuery
+}
+
+func (s *Settings) GetPostPublishQuery() string {
+	return s.PostPublishQuery
+}
+
+func (s *Settings) GetDatabase() string {
+	return s.Database
+}
+
 type ErrorMap map[string]interface{}
 
 const ErrorMapKey = "__errors"
@@ -128,17 +142,17 @@ func (e ErrorMap) GetErrors(path ...string) []string {
 	switch len(path) {
 	case 0:
 		errs, _ := e[ErrorMapKey]
-		switch x := errs.(type){
+		switch x := errs.(type) {
 		case []string:
 			return x
 
 		case []interface{}: // after unmarshalling
-		var out []string
-		for _, i := range x {
-			s, _ := i.(string)
-			out = append(out, s)
-		}
-		return out
+			var out []string
+			for _, i := range x {
+				s, _ := i.(string)
+				out = append(out, s)
+			}
+			return out
 		case nil:
 			return nil
 		default:
@@ -150,7 +164,7 @@ func (e ErrorMap) GetErrors(path ...string) []string {
 }
 
 func (e ErrorMap) String() string {
-	j, _  := json.Marshal(e)
+	j, _ := json.Marshal(e)
 	return string(j)
 }
 
@@ -165,7 +179,7 @@ type RealTimeState struct {
 	Version int `json:"version"`
 }
 
-func (r RealTimeState) String() string{
+func (r RealTimeState) String() string {
 	b, _ := json.MarshalIndent(r, "", "  ")
 	return string(b)
 }
@@ -175,9 +189,9 @@ type RealTimeTableState struct {
 }
 
 type RealTimeSettings struct {
-	meta string `title:"Real Time Settings" description:"Configure the tables to monitor for changes."`
-	Tables []RealTimeTableSettings `json:"tables" title:"Tables" description:"Add tables which will be checked for changes." minLength:"1"`
-	PollingInterval string `json:"pollingInterval" title:"Polling Interval" default:"5s" description:"Interval between checking for changes.  Defaults to 5s." pattern:"\\d+(ms|s|m|h)" required:"true"`
+	meta            string                  `title:"Real Time Settings" description:"Configure the tables to monitor for changes."`
+	Tables          []RealTimeTableSettings `json:"tables" title:"Tables" description:"Add tables which will be checked for changes." minLength:"1"`
+	PollingInterval string                  `json:"pollingInterval" title:"Polling Interval" default:"5s" description:"Interval between checking for changes.  Defaults to 5s." pattern:"\\d+(ms|s|m|h)" required:"true"`
 }
 
 func (r RealTimeSettings) String() string {
@@ -186,14 +200,13 @@ func (r RealTimeSettings) String() string {
 }
 
 type RealTimeTableSettings struct {
-	SchemaID               string `json:"schemaID" title:"Table" description:"The table to monitor for changes." required:"true"`
-	Query                  string `json:"query"  required:"true" title:"Query" description:"A query which matches up the primary keys of the the table where change tracking is enabled with the keys of the view or query you are publishing from." `
+	SchemaID string `json:"schemaID" title:"Table" description:"The table to monitor for changes." required:"true"`
+	Query    string `json:"query"  required:"true" title:"Query" description:"A query which matches up the primary keys of the the table where change tracking is enabled with the keys of the view or query you are publishing from." `
 }
 
 func GetRealTimeSchemas() (form *jsonschema.JSONSchema, ui SchemaMap) {
 
 	form = jsonschema.NewGenerator().WithRoot(RealTimeSettings{}).MustGenerate()
-
 
 	_ = updateProperty(&form.Property, func(p *jsonschema.Property) {
 		p.Pattern = `\d+(ms|s|m|h)`
@@ -205,16 +218,16 @@ func GetRealTimeSchemas() (form *jsonschema.JSONSchema, ui SchemaMap) {
 	}, "tables")
 
 	ui = SchemaMap{
-		"pollingInterval": SchemaMap {
+		"pollingInterval": SchemaMap{
 			"ui:help": "Provide a number and a unit (s = second, m = minute, h = hour).",
 		},
 		"tables": SchemaMap{
 			"items": SchemaMap{
 				"ui:order": []string{"schemaID", "query"},
-				"query":SchemaMap{
-					"ui:widget":"textarea",
+				"query": SchemaMap{
+					"ui:widget": "textarea",
 					"ui:options": SchemaMap{
-						"rows":3,
+						"rows": 3,
 					},
 					"ui:help": "The query must select the keys into columns with specific names." +
 						"The columns from the change tracked table must be named `[Dependency.{column}]`," +
@@ -280,22 +293,21 @@ func updateProperty(property *jsonschema.Property, fn func(property *jsonschema.
 		return nil
 	}
 
-	if property.Type == "array"{
+	if property.Type == "array" {
 		return updateProperty(property.Items, fn, path...)
 	}
 
-	if property.Properties == nil{
+	if property.Properties == nil {
 		property.Properties = map[string]*jsonschema.Property{}
 	}
 
 	child, ok := property.Properties[path[0]]
 	if !ok {
 		child = &jsonschema.Property{
-			Type:"object",
+			Type: "object",
 		}
 		property.Properties[path[0]] = child
 	}
-
 
 	err := updateProperty(child, fn, path[1:]...)
 	if err != nil {
@@ -304,3 +316,5 @@ func updateProperty(property *jsonschema.Property, fn func(property *jsonschema.
 
 	return nil
 }
+
+var _ adapters.Settings = &Settings{}

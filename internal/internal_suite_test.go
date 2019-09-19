@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/as/hue"
 	"github.com/hashicorp/go-hclog"
+	"github.com/naveego/plugin-pub-mssql/internal/adapters/mssql"
 	"github.com/onsi/gomega/format"
 	"github.com/onsi/gomega/types"
 	"io"
@@ -41,11 +42,11 @@ func TestMSSQL(t *testing.T) {
 	build.RunSpecsWithReporting(t, "MSSQL Suite")
 }
 
-func GetTestSettings() *Settings {
-	return &Settings{
+func GetTestSettings() *mssql.Settings {
+	return &mssql.Settings{
 		Host:     "localhost",
 		Port:     1433,
-		Auth:     AuthTypeSQL,
+		Auth:     mssql.AuthTypeSQL,
 		Username: "sa",
 		Password: "n5o_ADMIN",
 		Database: "w3",

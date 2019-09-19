@@ -36,12 +36,12 @@ IF OBJECT_ID('{{.SQLSchema}}.{{.ReplicationMetadataTable}}', 'U') IS NULL
 		Kind VARCHAR(20),
 		Name NVARCHAR(200)
 	)
-` )
+`)
 
 type ReplicationMetadataDDLArgs struct {
-	SQLSchema string
+	SQLSchema                  string
 	ReplicationVersioningTable string
-	ReplicationMetadataTable string
+	ReplicationMetadataTable   string
 }
 
 func (r ReplicationMetadataDDLArgs) Render() (string, error) {
@@ -49,8 +49,6 @@ func (r ReplicationMetadataDDLArgs) Render() (string, error) {
 	r.ReplicationVersioningTable = constants.ReplicationVersioningTable
 	return renderTemplate(replicationMetadataTemplate, r)
 }
-
-
 
 var replicationMetadataMergeTemplate = compileTemplate("replicationMetadataMerge",
 	// language=GoTemplate
@@ -72,17 +70,17 @@ WHEN MATCHED THEN
 WHEN NOT MATCHED BY TARGET THEN
     INSERT (ID, Kind, Name)
     VALUES (ID, Kind, Name);
-` )
+`)
 
 type ReplicationMetadataMerge struct {
-	SQLSchema string
-	Entries []ReplicationMetadataEntry
+	SQLSchema                  string
+	Entries                    []ReplicationMetadataEntry
 	ReplicationVersioningTable string
-	ReplicationMetadataTable string
+	ReplicationMetadataTable   string
 }
 type ReplicationMetadataEntry struct {
 	Kind string
-	ID string
+	ID   string
 	Name string
 }
 
@@ -97,8 +95,6 @@ func (r ReplicationMetadataMerge) Render() (string, error) {
 	return renderTemplate(replicationMetadataMergeTemplate, r)
 }
 
-
-
 var replicationTableCreationTemplate = compileTemplate("replicationTableCreation",
 	// language=GoTemplate
 	`
@@ -112,12 +108,12 @@ CREATE TABLE {{.Schema.ID}}
 create index Versions_GroupID_index
 	on {{.Schema.ID}} ({{.GroupIDColumn}})
 
-` )
+`)
 
 type ReplicationTableCreationDDL struct {
-	Schema *meta.Schema
-	ParentTable string
-	GroupIDColumn string
+	Schema          *meta.Schema
+	ParentTable     string
+	GroupIDColumn   string
 	UpdatedAtColumn string
 	CreatedAtColumn string
 }
@@ -133,7 +129,6 @@ func RenderReplicationTableCreationDDLArgs(args ReplicationTableCreationDDL) (st
 	args.GroupIDColumn = constants.GroupID
 	return renderTemplate(replicationTableCreationTemplate, args)
 }
-
 
 var replicationVersionMergeTemplate = compileTemplate("replicationVersionMerge",
 	// language=GoTemplate
@@ -169,17 +164,16 @@ WHEN NOT MATCHED BY SOURCE
  	AND Target.{{.GroupIDColumn}} = '{{.Record.RecordId}}'
  	THEN DELETE;
 {{- end -}}
-` )
+`)
 
 type ReplicationVersionMerge struct {
-	Schema *meta.Schema
-	Record *pub.UnmarshalledRecord
-	GroupIDColumn string
+	Schema          *meta.Schema
+	Record          *pub.UnmarshalledRecord
+	GroupIDColumn   string
 	UpdatedAtColumn string
 	CreatedAtColumn string
-	JobIDColumn string
-	RecordIDColumn string
-
+	JobIDColumn     string
+	RecordIDColumn  string
 }
 
 func (r ReplicationVersionMerge) String() string {
@@ -194,7 +188,6 @@ func (r ReplicationVersionMerge) Render() (string, error) {
 	r.RecordIDColumn = constants.RecordID
 	return renderTemplate(replicationVersionMergeTemplate, r)
 }
-
 
 var replicationGoldenMergeTemplate = compileTemplate("replicationGoldenMerge",
 	// language=GoTemplate
@@ -220,12 +213,12 @@ WHEN NOT MATCHED BY TARGET THEN
     INSERT ({{($.Schema.Columns.OmitIDs $.CreatedAtColumn $.UpdatedAtColumn).MakeSQLColumnNameList }}, {{.CreatedAtColumn}}, {{.UpdatedAtColumn}}) 
     VALUES ({{($.Schema.Columns.OmitIDs $.CreatedAtColumn $.UpdatedAtColumn).MakeSQLColumnNameList}}, GETDATE(), GETDATE());
 {{- end -}}
-` )
+`)
 
 type ReplicationGoldenMerge struct {
-	Schema *meta.Schema
-	Record *pub.UnmarshalledRecord
-	GroupIDColumn string
+	Schema          *meta.Schema
+	Record          *pub.UnmarshalledRecord
+	GroupIDColumn   string
 	UpdatedAtColumn string
 	CreatedAtColumn string
 }
