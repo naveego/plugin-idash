@@ -9,7 +9,7 @@ before:
 builds:
 - env:
   - CGO_ENABLED=0
-  main: main.go
+  main: ../../main.go
   goos:
   - darwin
   - linux
@@ -25,6 +25,8 @@ archive:
   - icon.png
   - ../../LICENSE
   replacements:
+
+dist: ../../dist
 
 checksum:
   name_template: 'checksums.txt'

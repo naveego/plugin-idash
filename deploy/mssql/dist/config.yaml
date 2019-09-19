@@ -1,0 +1,81 @@
+project_name: plugin-pub-mssql
+release:
+  github:
+    owner: naveego
+    name: plugin-pub-mssql
+  name_template: '{{.Tag}}'
+brew:
+  name: plugin-pub-mssql
+  commit_author:
+    name: goreleaserbot
+    email: goreleaser@carlosbecker.com
+  install: bin.install "plugin-pub-mssql"
+scoop:
+  name: plugin-pub-mssql
+  commit_author:
+    name: goreleaserbot
+    email: goreleaser@carlosbecker.com
+  url_template: https://github.com/naveego/plugin-pub-mssql/releases/download/{{ .Tag
+    }}/{{ .ArtifactName }}
+builds:
+- goos:
+  - darwin
+  - linux
+  - windows
+  goarch:
+  - amd64
+  goarm:
+  - "6"
+  targets:
+  - darwin_amd64
+  - linux_amd64
+  - windows_amd64
+  main: main.go
+  ldflags:
+  - -X adapters.Driver=mssql
+  binary: plugin-pub-mssql
+  env:
+  - CGO_ENABLED=0
+  lang: go
+archive:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm
+    }}v{{ .Arm }}{{ end }}'
+  format: zip
+  files:
+  - manifest.json
+  - icon.png
+  - ../../LICENSE
+nfpm:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm
+    }}v{{ .Arm }}{{ end }}'
+  bindir: /usr/local/bin
+snapcraft:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm
+    }}v{{ .Arm }}{{ end }}'
+snapshot:
+  name_template: '{{ .Tag }}-next'
+checksum:
+  name_template: checksums.txt
+changelog:
+  filters:
+    exclude:
+    - '^docs:'
+    - '^test:'
+  sort: asc
+dist: dist
+sign:
+  cmd: gpg
+  args:
+  - --output
+  - $signature
+  - --detach-sig
+  - $artifact
+  signature: ${artifact}.sig
+  artifacts: none
+env_files:
+  github_token: ~/.config/goreleaser/github_token
+before:
+  hooks:
+  - go mod download
+github_urls:
+  download: https://github.com
