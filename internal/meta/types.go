@@ -58,8 +58,8 @@ func ConvertPluginTypeToSQLType(t pub.PropertyType) string {
 		pub.PropertyType_BLOB,
 		pub.PropertyType_JSON,
 		pub.PropertyType_XML:
-		return "varchar(max)"
+		return "varchar(255)"
 	default:
-		return "varchar(max)"
+		return "varchar(255)"
 	}
 }

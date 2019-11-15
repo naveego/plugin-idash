@@ -15,8 +15,8 @@ func Build() error {
 	cfg := build.PluginConfig{
 		Package: build.Package{
 			VersionString: version.Version.String(),
-			PackagePath:   "github.com/naveego/plugin-pub-mssql",
-			Name:          "pub-mssql",
+			PackagePath:   "github.com/naveego/plugin-idash",
+			Name:          "plugin-idash",
 			Shrink:        true,
 		},
 		Targets: []build.PackageTarget{

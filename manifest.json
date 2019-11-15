@@ -1,11 +1,11 @@
 {
-  "id": "pub-mssql",
-  "displayName": "Microsoft SQL Server Publisher",
-  "description": "Publisher which pulls data from an MS SQL Server instance.",
-  "version": "3.1.5",
+  "id": "plugin-idash",
+  "displayName": "iDashboards Publisher",
+  "description": "Publisher which pulls data from an iDashboards instance.",
+  "version": "1.0.0",
   "apiVersion": "2",
   "iconFile": "icon.png",
-  "executable": "plugin-pub-mssql",
+  "executable": "plugin-idash",
   "kind": "publisher",
   "os": "$GOOS",
   "arch": "$GOARCH",
@@ -63,12 +63,12 @@
         "port": {
           "type": "number",
           "title": "Port",
-          "description": "The port of the SQL Server instance on the server (optional)"
+          "description": "The port of the iDashboards Server instance on the server (optional)"
         },
         "instance": {
           "type": "string",
           "title": "Instance",
-          "description": "The SQL Server instance on the server (optional)"
+          "description": "The iDashboards Server instance on the server (optional)"
         },
         "database": {
           "type": "string",

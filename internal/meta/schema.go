@@ -147,7 +147,6 @@ func (c Columns) MakeSQLColumnNameList() string {
 	var values []string
 
 	for _, column := range c {
-
 			values = append(values, column.ID)
 	}
 
@@ -233,7 +232,7 @@ func (c Column) RenderSQLValue(v interface{}) string {
 		pub.PropertyType_XML,
 		pub.PropertyType_BLOB:
 		s := strings.Replace(fmt.Sprint(v), "'", "''", -1)
-		return fmt.Sprintf("'%s'", s)
+		return fmt.Sprintf("left('%s', 255)", s)
 	case pub.PropertyType_JSON:
 
 		j, _ := json.Marshal(v)
