@@ -1,6 +1,6 @@
 {
   "id": "plugin-idash",
-  "displayName": "iDashboards Publisher",
+  "displayName": "iDashboards",
   "description": "Publisher which pulls data from an iDashboards instance.",
   "version": "1.0.0",
   "apiVersion": "2",
