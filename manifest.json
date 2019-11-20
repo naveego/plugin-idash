@@ -13,11 +13,11 @@
   "canProduceMultipleSchemas": true,
   "canAcceptQueryBasedSchemas": true,
   "canConfigureRealTime": true,
-  "canConfigureWrite": true,
+  "canConfigureWrite": false,
   "canConfigureReplication": true,
   "canWriteReplication": true,
-  "canWriteBatch": true,
-  "canWrite": true,
+  "canWriteBatch": false,
+  "canWrite": false,
   "querySchema": {
     "ui": {
       "ui:widget": "code",
