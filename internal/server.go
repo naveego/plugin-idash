@@ -5,19 +5,22 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"os"
+	"regexp"
+	"runtime/debug"
+	"sort"
+	"strings"
+	"sync"
+
 	"github.com/LK4D4/joincontext"
+	"github.com/avast/retry-go"
 	"github.com/hashicorp/go-hclog"
 	jsonschema "github.com/naveego/go-json-schema"
 	"github.com/naveego/plugin-pub-mssql/internal/meta"
 	"github.com/naveego/plugin-pub-mssql/internal/pub"
 	"github.com/pkg/errors"
-	"io"
-	"io/ioutil"
-	"os"
-	"regexp"
-	"sort"
-	"strings"
-	"sync"
 )
 
 // Server type to describe a server
@@ -27,7 +30,6 @@ type Server struct {
 	session *Session
 	config  *Config
 }
-
 
 type Config struct {
 	LogLevel hclog.Level
@@ -52,6 +54,7 @@ type Session struct {
 	RealTimeHelper   *RealTimeHelper
 	Config           Config
 	DB               *sql.DB
+	DbHandles        map[string]*sql.DB
 	SchemaDiscoverer SchemaDiscoverer
 }
 
@@ -144,6 +147,16 @@ func (s *Server) getConfig() (Config, error) {
 	return *s.config, nil
 }
 
+func ExtractIPFromWsarecvErr(input string) string {
+	matches := wsarecvIPExtractorRE.FindStringSubmatch(input)
+	if len(matches) == 2 {
+		return matches[1]
+	}
+	return ""
+}
+
+var wsarecvIPExtractorRE = regexp.MustCompile(`(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d+: wsarecv`)
+
 var configSchemaUI map[string]interface{}
 var configSchemaUIJSON string
 var configSchemaSchema map[string]interface{}
@@ -151,6 +164,7 @@ var configSchemaSchemaJSON string
 
 // Connect connects to the data base and validates the connections
 func (s *Server) Connect(ctx context.Context, req *pub.ConnectRequest) (*pub.ConnectResponse, error) {
+
 	var err error
 	s.log.Debug("Connecting...")
 	s.disconnect()
@@ -179,37 +193,72 @@ func (s *Server) Connect(ctx context.Context, req *pub.ConnectRequest) (*pub.Con
 		return nil, errors.WithStack(err)
 	}
 
-	connectionString, err := settings.GetConnectionString()
-	if err != nil {
-		return nil, err
-	}
+	originalHost := settings.Host
 
-	session.Settings = settings
+	// retry start
+	err = retry.Do(
+		func() error {
+			connectionString, err := settings.GetConnectionString()
+			if err != nil {
+				return err
+			}
+			session.Settings = settings
+			session.DB, err = sql.Open("sqlserver", connectionString)
+			if err != nil {
+				return errors.Errorf("could not open connection: %s", err)
+			}
+			err = session.DB.Ping()
+			return err
+		},
+		retry.RetryIf(func(err error) bool {
+			if strings.Contains(err.Error(), "wsarecv") {
+				var ip = ExtractIPFromWsarecvErr(err.Error())
+				if ip == "" {
+					return false
+				}
 
-	session.DB, err = sql.Open("sqlserver", connectionString)
+				settings.Host = ip
+
+				return true
+				//return s.Connect(ctx, pub.NewConnectRequest(settings))
+			}
+
+			return false
+			//return nil, errors.Errorf("could not read database schema: %s", err)
+		}),
+		retry.Attempts(2))
+
+	// retry end
 	if err != nil {
-		return nil, errors.Errorf("could not open connection: %s", err)
+		if originalHost != settings.Host {
+			return nil, errors.Wrapf(err, "tried original host %q and raw IP %q", originalHost, settings.Host)
+		}
+		return nil, errors.Wrapf(err, "tried using host %q, port %d", settings.Host, settings.Port)
 	}
 
 	rows, err := session.DB.Query(`SELECT t.TABLE_NAME
      , t.TABLE_SCHEMA
      , t.TABLE_TYPE
      , c.COLUMN_NAME
+	   , c.DATA_TYPE
+     , c.IS_NULLABLE
+     , c.CHARACTER_MAXIMUM_LENGTH
      , tc.CONSTRAINT_TYPE
 , CASE
-  WHEN exists (SELECT 1 FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID(t.TABLE_SCHEMA + '.' + t.TABLE_NAME))
-  THEN 1
-  ELSE 0
-  END AS CHANGE_TRACKING
+ WHEN exists (SELECT 1 FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID(t.TABLE_SCHEMA + '.' + t.TABLE_NAME))
+ THEN 1
+ ELSE 0
+ END AS CHANGE_TRACKING
 FROM INFORMATION_SCHEMA.TABLES AS t
-       INNER JOIN INFORMATION_SCHEMA.COLUMNS AS c ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
-       LEFT OUTER JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE AS ccu
-                       ON ccu.COLUMN_NAME = c.COLUMN_NAME AND ccu.TABLE_NAME = t.TABLE_NAME AND
-                          ccu.TABLE_SCHEMA = t.TABLE_SCHEMA
-       LEFT OUTER JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS tc
-                       ON tc.CONSTRAINT_NAME = ccu.CONSTRAINT_NAME AND tc.CONSTRAINT_SCHEMA = ccu.CONSTRAINT_SCHEMA
+      INNER JOIN INFORMATION_SCHEMA.COLUMNS AS c ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
+      LEFT OUTER JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE AS ccu
+                      ON ccu.COLUMN_NAME = c.COLUMN_NAME AND ccu.TABLE_NAME = t.TABLE_NAME AND
+                         ccu.TABLE_SCHEMA = t.TABLE_SCHEMA
+      LEFT OUTER JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS tc
+                      ON tc.CONSTRAINT_NAME = ccu.CONSTRAINT_NAME AND tc.CONSTRAINT_SCHEMA = ccu.CONSTRAINT_SCHEMA
 
 ORDER BY TABLE_NAME`)
+
 	if err != nil {
 		return nil, errors.Errorf("could not read database schema: %s", err)
 	}
@@ -217,11 +266,12 @@ ORDER BY TABLE_NAME`)
 	// Collect table names for display in UIs.
 	for rows.Next() {
 		var (
-			schema, table, typ, columnName string
-			constraint                     *string
-			changeTracking                 bool
+			schema, table, typ, columnName, dataType, isNullable string
+			maxLength                                            sql.NullInt64
+			constraint                                           *string
+			changeTracking                                       bool
 		)
-		err = rows.Scan(&table, &schema, &typ, &columnName, &constraint, &changeTracking)
+		err = rows.Scan(&table, &schema, &typ, &columnName, &dataType, &isNullable, &maxLength, &constraint, &changeTracking)
 		if err != nil {
 			return nil, errors.Wrap(err, "could not read table schema")
 		}
@@ -241,6 +291,18 @@ ORDER BY TABLE_NAME`)
 			columnInfo = info.AddColumn(&meta.Column{ID: columnName})
 		}
 		columnInfo.IsKey = columnInfo.IsKey || constraint != nil && *constraint == "PRIMARY KEY"
+		columnInfo.IsDiscovered = true
+		columnInfo.SQLType = dataType
+		columnInfo.IsNullable = strings.ToUpper(isNullable) == "YES"
+		if maxLength.Valid {
+			columnInfo.MaxLength = maxLength.Int64
+			columnInfo.SQLType = fmt.Sprintf("%s (%v)", dataType, maxLength.Int64)
+			if maxLength.Int64 == -1 {
+				columnInfo.SQLType = fmt.Sprintf("%s (max)", dataType)
+			}
+		} else {
+			columnInfo.MaxLength = 0
+		}
 	}
 
 	rows, err = session.DB.Query("SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.routines WHERE routine_type = 'PROCEDURE'")
@@ -479,7 +541,7 @@ func (s *Server) ConfigureWrite(ctx context.Context, req *pub.ConfigureWriteRequ
 		goto Done
 	}
 
-	sprocSchema, sprocName = decomposeSafeName(formData.StoredProcedure)
+	_, sprocSchema, sprocName = DecomposeSafeName(formData.StoredProcedure)
 	// check if stored procedure exists
 	query = `SELECT 1
 FROM information_schema.routines
@@ -558,8 +620,18 @@ type ConfigureWriteFormData struct {
 	StoredProcedure string `json:"storedProcedure,omitempty"`
 }
 
+func (s *Server) ConfigureReplication(ctx context.Context, req *pub.ConfigureReplicationRequest) (resp *pub.ConfigureReplicationResponse, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%s: %s", r, string(debug.Stack()))
+			s.log.Error("panic", "error", err, "stackTrace", string(debug.Stack()))
+		}
+	}()
 
-func (s *Server) ConfigureReplication(ctx context.Context, req *pub.ConfigureReplicationRequest) (*pub.ConfigureReplicationResponse, error) {
+	return s.configureReplication(ctx, req)
+}
+
+func (s *Server) configureReplication(ctx context.Context, req *pub.ConfigureReplicationRequest) (*pub.ConfigureReplicationResponse, error) {
 	builder := pub.NewConfigurationFormResponseBuilder(req.Form)
 
 	s.log.Debug("Handling configure replication request.")
@@ -572,12 +644,19 @@ func (s *Server) ConfigureReplication(ctx context.Context, req *pub.ConfigureRep
 
 		s.log.Debug("Configure replication request had data.", "data", string(req.Form.DataJson))
 
-
 		if req.Schema != nil {
 			s.log.Debug("Configure replication request had a schema.", "schema", req.Schema)
 		}
 		if req.Form.IsSave {
 			s.log.Debug("Configure replication request was a save.")
+		}
+
+		for i, a := range settings.PropertyConfiguration {
+			for _, b := range settings.PropertyConfiguration[i+1:] {
+				if a.Name == b.Name {
+					return nil, errors.Errorf("Duplicate property: %s detected", a.Name)
+				}
+			}
 		}
 
 		if settings.SQLSchema != "" &&
@@ -596,10 +675,10 @@ func (s *Server) ConfigureReplication(ctx context.Context, req *pub.ConfigureRep
 			}
 
 			_, err = PrepareWriteHandler(session, &pub.PrepareWriteRequest{
-				Schema:req.Schema,
+				Schema: req.Schema,
 				Replication: &pub.ReplicationWriteRequest{
-				SettingsJson:req.Form.DataJson,
-				Versions: req.Versions,
+					SettingsJson: req.Form.DataJson,
+					Versions:     req.Versions,
 				},
 			})
 			if err != nil {
@@ -609,13 +688,22 @@ func (s *Server) ConfigureReplication(ctx context.Context, req *pub.ConfigureRep
 		}
 	}
 
-	builder.UISchema = map[string]interface{}{
-		"ui:order":[]string{"sqlSchema","goldenRecordTable", "versionRecordTable"},
-	}
 	builder.FormSchema = jsonschema.NewGenerator().WithRoot(ReplicationSettings{}).MustGenerate()
 
+	if req.Schema != nil {
+		var nameEnum []string
+		for _, property := range req.Schema.Properties {
+			nameEnum = append(nameEnum, property.Name)
+		}
+
+		builder.UISchema = map[string]interface{}{
+			"ui:order": []string{"sqlSchema", "goldenRecordTable", "versionRecordTable", "propertyConfig"},
+		}
+		builder.FormSchema.Properties["propertyConfig"].Items.Properties["name"].Enum = nameEnum
+	}
+
 	return &pub.ConfigureReplicationResponse{
-		Form:builder.Build(),
+		Form: builder.Build(),
 	}, nil
 }
 
@@ -675,9 +763,6 @@ func (s *Server) WriteStream(stream pub.Publisher_WriteStreamServer) error {
 		if err == nil {
 			err = session.Writer.Write(session, unmarshalledRecord)
 		}
-
-
-
 
 		if err != nil {
 			// send failure ack to agent
@@ -819,7 +904,6 @@ func buildQuery(req *pub.ReadRequest) (string, error) {
 
 var errNotConnected = errors.New("not connected")
 
-
 func formatTypeAtSource(t string, maxLength, precision, scale int) string {
 	var maxLengthString string
 	if maxLength < 0 {
@@ -839,20 +923,6 @@ func formatTypeAtSource(t string, maxLength, precision, scale int) string {
 		return fmt.Sprintf("%s(%d)", t, scale)
 	default:
 		return t
-	}
-}
-
-func decomposeSafeName(safeName string) (schema, name string) {
-	segs := strings.Split(safeName, ".")
-	switch len(segs) {
-	case 0:
-		return "", ""
-	case 1:
-		return "dbo", strings.Trim(segs[0], "[]")
-	case 2:
-		return strings.Trim(segs[0], "[]"), strings.Trim(segs[1], "[]")
-	default:
-		return "", ""
 	}
 }
 

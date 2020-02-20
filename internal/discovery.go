@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"github.com/hashicorp/go-hclog"
 	"github.com/naveego/plugin-pub-mssql/internal/meta"
@@ -93,7 +94,7 @@ func (s *SchemaDiscoverer) DiscoverSchemas(session *OpSession, req *pub.Discover
 				}()
 
 				s.Log.Debug("Getting details for discovered schema", "id", schema.Id)
-				err := s.populateShapeColumns(session, schema)
+				err := s.populateShapeColumns(session, schema, req)
 				if err != nil {
 					s.Log.With("shape", schema.Id).With("err", err).Error("Error discovering columns")
 					schema.Errors = append(schema.Errors, fmt.Sprintf("Could not discover columns: %s", err))
@@ -195,6 +196,22 @@ WHERE  o.type IN ( 'U', 'V' )`)
 	return schemas, nil
 }
 
+func DecomposeSafeName(safeName string) (dbName, schema, name string) {
+	segs := strings.Split(safeName, ".")
+	switch len(segs) {
+	case 0:
+		return "", "", ""
+	case 1:
+		return "", "dbo", strings.Trim(segs[0], "[]")
+	case 2:
+		return "", strings.Trim(segs[0], "[]"), strings.Trim(segs[1], "[]")
+	case 3:
+		return strings.Trim(segs[0], "[]"), strings.Trim(segs[1], "[]"), strings.Trim(segs[2], "[]")
+	default:
+		return "", "", ""
+	}
+}
+
 func GetSchemaID(schemaName, tableName string) string {
 	if schemaName == "dbo" {
 		return fmt.Sprintf("[%s]", tableName)
@@ -212,10 +229,31 @@ type describeResult struct {
 	MaxLength         int64  `sql:"max_length"`
 }
 
-func describeResultSet(session *OpSession, query string) ([]describeResult, error) {
-	metaQuery := fmt.Sprintf("sp_describe_first_result_set N'%s', @params= N'', @browse_information_mode=1", query)
+func makeDescribeResultSetFromMetaSchema(metaSchema *meta.Schema)([]describeResult, error) {
+	metadata := make([]describeResult, 0, 0)
 
-	rows, err := session.DB.Query(metaQuery)
+	for _, column := range metaSchema.Columns() {
+		metadata = append(metadata, describeResult{
+			IsHidden:          false,
+			Name:              strings.Trim(column.ID, "[]"),
+			SystemTypeName:    column.SQLType,
+			IsNullable:        column.IsNullable,
+			IsPartOfUniqueKey: column.IsKey,
+			MaxLength:         column.MaxLength,
+		})
+	}
+
+	return metadata, nil
+}
+
+func describeResultSet(session *OpSession, query string) ([]describeResult, error) {
+	//metaQuery := " @query, @params= N'', @browse_information_mode=1"
+
+	rows, err := session.DB.Query("sp_describe_first_result_set",
+		sql.Named("query", query),
+		sql.Named("params",""),
+		sql.Named("browse_information_mode",1),
+	)
 
 	if err != nil {
 
@@ -239,30 +277,55 @@ func describeResultSet(session *OpSession, query string) ([]describeResult, erro
 	return metadata, nil
 }
 
-func (s *SchemaDiscoverer) populateShapeColumns(session *OpSession, shape *pub.Schema) error {
+func (s *SchemaDiscoverer) populateShapeColumns(session *OpSession, schema *pub.Schema, req *pub.DiscoverSchemasRequest) error {
+	var metadata []describeResult
+	var err error
 
-	query := shape.Query
+	query := schema.Query
+
+	// schema is not query based
 	if query == "" {
-		query = fmt.Sprintf("SELECT * FROM %s", shape.Id)
+		// always use describe result set when refresh mode
+		if req.Mode == pub.DiscoverSchemasRequest_REFRESH {
+			query = fmt.Sprintf("SELECT * FROM %s", schema.Id)
+		} else {
+			// attempt to get meta schema
+			metaSchema, ok := session.SchemaInfo[schema.Id]
+			if ok {
+				// get describe result set from meta schema
+				metadata, err = makeDescribeResultSetFromMetaSchema(metaSchema)
+				if err != nil {
+					return err
+				}
+			} else {
+				// fall back to query
+				query = fmt.Sprintf("SELECT * FROM %s", schema.Id)
+			}
+		}
 	}
 
-	query = strings.Replace(query, "'", "''", -1)
+	// fallback for query based schemas and no meta schema
+	if query != "" {
+		query = strings.Replace(query, "'", "''", -1)
 
-	metadata, err := describeResultSet(session, query)
-	if err != nil {
-		return err
+		metadata, err = describeResultSet(session, query)
+		if err != nil {
+			return err
+		}
 	}
 
 	unnamedColumnIndex := 0
 
 	preDefinedProperties := map[string]*pub.Property{}
 	hasUserDefinedKeys := false
-	for _, p := range shape.Properties {
+	for _, p := range schema.Properties {
 		preDefinedProperties[p.Id] = p
 		if p.IsKey {
 			hasUserDefinedKeys = true
 		}
 	}
+
+	var discoveredProperties []*pub.Property
 
 	for _, m := range metadata {
 
@@ -287,8 +350,9 @@ func (s *SchemaDiscoverer) populateShapeColumns(session *OpSession, shape *pub.S
 				Id:   propertyID,
 				Name: propertyName,
 			}
-			shape.Properties = append(shape.Properties, property)
 		}
+
+		discoveredProperties = append(discoveredProperties, property)
 
 		property.TypeAtSource = m.SystemTypeName
 
@@ -301,6 +365,8 @@ func (s *SchemaDiscoverer) populateShapeColumns(session *OpSession, shape *pub.S
 			property.IsKey = m.IsPartOfUniqueKey
 		}
 	}
+
+	schema.Properties = discoveredProperties
 
 	return nil
 }
@@ -344,6 +410,11 @@ func (s *SchemaDiscoverer) getCount(session *OpSession, shape *pub.Schema) (*pub
 	var count int
 	err = row.Scan(&count)
 	if err != nil {
+		if strings.Contains(err.Error(), "context deadline exceeded") {
+			return &pub.Count{
+				Kind:  pub.Count_UNAVAILABLE,
+			}, nil
+		}
 		return nil, fmt.Errorf("error from query %q: %s", query, err)
 	}
 
